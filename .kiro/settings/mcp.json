@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "brave-search": {
+      "command": "uvx",
+      "args": ["brave-search-mcp"],
+      "env": {
+        "BRAVE_API_KEY": "your-brave-api-key-here"
+      },
+      "disabled": false,
+      "autoApprove": ["search"]
+    },
+    "wikipedia": {
+      "command": "uvx",
+      "args": ["wikipedia-mcp"],
+      "disabled": false,
+      "autoApprove": ["search_wikipedia", "get_page_summary"]
+    },
+    "web-scraper": {
+      "command": "uvx", 
+      "args": ["web-scraper-mcp"],
+      "disabled": false,
+      "autoApprove": ["scrape_url", "extract_content"]
+    },
+    "arxiv": {
+      "command": "uvx",
+      "args": ["arxiv-mcp"],
+      "disabled": false,
+      "autoApprove": ["search_papers", "get_paper_details"]
+    }
+  }
+}

@@ -1,0 +1,230 @@
+prompt-eval/
+  app/
+    main.py                      # FastAPI 엔트리
+    api/
+      routes/
+        jobs.py                  # POST /jobs, GET /jobs/{id}, POST /jobs/{id}/rerun
+        compare.py               # POST /compare (모델/버전 비교)
+        health.py
+    core/
+      config.py                  # env, weights, alpha, default models
+      schemas.py                 # Pydantic 요청/응답 스키마
+      hashing.py                 # prompt/input/params hash
+      logging.py
+      errors.py
+    orchestrator/
+      pipeline.py                # Orchestrator.run(job) : 전체 파이프라인
+      context.py                 # 실행 컨텍스트(캐시/스토리지/어댑터 핸들)
+      stages/
+        run_stage.py             # Runner 호출(예시입력×반복)
+        token_stage.py           # tiktoken/근사치
+        density_stage.py         # n-gram 정보밀도
+        embed_stage.py           # Titan/Cohere 임베딩 + 캐시
+        consistency_stage.py     # centroid 기반
+        relevance_stage.py       # 입력-출력 cosine
+        variance_stage.py        # 모델/버전 편차
+        judge_stage.py           # 환각 탐지(의심만)
+        aggregate_stage.py       # type별 가중 합산 + 패널티 규칙
+    adapters/
+      runner/
+        base.py
+        bedrock_runner.py        # Bedrock invoke
+      embedder/
+        base.py
+        bedrock_embedder.py      # Titan Text/Cohere Multi + (이미지면 multimodal/v4)
+      judge/
+        base.py
+        bedrock_judge.py         # 저렴한 judge 모델 고정(JSON 출력)
+    storage/
+      repo.py
+      sqlite_repo.py             # MVP
+    cache/
+      cache.py                   # in-memory + optional persistent
+  tests/
+  pyproject.toml
+  README.md
+
+orchestrator/pipeline.py가 “유일한 진실의 소스”
+
+Runner/Embedder/Judge는 모두 adapters/ 아래로 분리(벤더 종속 최소화)
+
+MCP 같은 인터페이스는 아예 없음 (HTTP만)
+
+
+프롬프트 검증 전체 흐름 (정리본)
+<판매자 입력>
+- 프롬프트 1개
+- 예시 입력 3개
+- (선택) 권장 모델
+
+<프롬프트 실행>
+- 예시 입력 3개 각각에 대해 프롬프트 실행
+- 출력 텍스트 생성
+- (조건부) 동일 입력에 대해 5회 반복 실행
+
+<토큰 사용량 산정>
+- 입력 토큰 수 계산 - tiktoken
+- 모델 타입별 구분
+    - Type A
+    - Type B-텍스트
+    - Type B-이미지
+
+<출력 기반 지표 계산 (개별 출력 단위)>
+4-1. 출력 대비 정보 밀도 (A, B-텍스트)
+- n-gram 중복률 계산
+- 출력 길이 대비 핵심 정보 비율 산정
+- 반복 표현/군더더기 패널티
+4-2. 환각 탐지 (A 중심)
+- 근거 매칭 기반 1차 필터
+- 의심 케이스에 한해 LLM Judge 실행
+
+<출력 임베딩 및 벡터화>
+- 각 출력 텍스트를 임베딩
+- 출력별 벡터 v1, v2, …, vN 생성
+
+<출력 그룹 기반 일관성 계산 (Centroid 방식)>
+6-1. 중심 벡터 계산
+centroid = (v1 + v2 + ... + vN) / N
+※ 동일 입력 + 동일 모델 조건에서 생성된 출력만 포함
+※ N ≥ 3 인 경우에만 centroid 방식 사용
+
+6-2. 중심으로부터의 거리 계산
+di = 1 - cosine_similarity(vi, centroid)
+
+-> 1,2,3의 평균을 가지고 (평,1)(평,2)(평,3) 비교
+원래 1,2 2,3 3,1 가지고 하던 cosine과 다름
+
+6-3. 일관성 점수 산출
+mean_d = avg(di)
+max_d  = max(di)
+
+consistency = 1 - (mean_d + α * max_d)
+- α = 0.2 ( 해보고 차이 없으면 0.3으로 변경예정)
+- 한 번이라도 크게 벗어난 출력에 패널티 부여
+
+<입력–출력 관련성 평가>
+- 각 예시 입력과 해당 출력 간 임베딩 유사도 계산
+- 입력별 관련성 점수 산출
+- 평균 관련성 + 낮은 케이스 감점
+※ 관련성은 centroid를 사용하지 않음
+(일관성 ≠ 정확성)
+
+<버전 / 모델별 성능 편차 평가>
+- 모델 A / 모델 B에서 동일 예시 입력 실행
+- 동일 모델 각 버전(최신버전3개) 결과에 대해 일관성 점수 계산
+- 모델 간 점수 차이로 편차 산출
+variance = |scoreA - scoreB|
+※ 서로 다른 모델 출력은 centroid에 섞지 않음
+
+<최종 점수 집계>
+- 토큰 효율
+- 정보 밀도
+- 환각 안정성
+- 관련성
+- 출력 일관성 (centroid 기반)
+- 모델/버전 편차
+
+→ 가중 합산하여 최종 평가 점수 산출
+
+3,4,6(응답의 일관성, 버전별 성능, 정확도) 과정에만 임베딩 필요
+
+임베딩은 aws bedrock에서 제공하는 임베딩 모델 2개 사용예정 - 앙상블
+텍스트: Titan Text + Cohere Embed Multilingual
+이미지: Titan Multimodal + Cohere Embed v4
+
+결합은 벡터 평균이 아니라 “점수 평균/가중 평균”
+
+**TYPE_A: Information (정답/사실/근거 요구)**
+→ 토큰 사용량(1), 출력대비 정보밀도(3), 응답의 일관성(4), 모델별 성능편차(6), 환각 탐지(7), 관련성(8).
+
+**TYPE_B: Creative (창작/상상/스토리/문체)**
+
+1. 글
+→ 토큰 사용량(1), 출력대비 정보밀도(3), 모델별 성능편차(6), 관련성(8)
+
+2. 이미지
+→ 토큰 사용량(1), 응답의 일관성(4), 버전별 성능 편차(6), 관련성(8)
+
+AI사용 ; 응답의 일관성, 환각 탐지, 관련성
+
+<토큰 사용량 (Token Usage)>
+- 정의: 판매자가 지정한 모델에서 '고정 프롬프트'가 차지하는 토큰 수입니다.
+- 처리: `{{}}` 기호로 표시된 사용자 입력 부분(Placeholder)을 제거한 후 계산합니다.
+- 라이브러리: GPT 계열은 `tiktoken`을 사용하며, 클로드/제미나이는 비용과 속도를 고려해 근사치로 제공합니다.
+
+<출력 대비 정보 밀도 (Information Density)>
+정의: 동일한 출력 토큰 내에서 불필요한 반복을 제거하고 얼마나 효율적으로 정보를 전달하는지 측정합니다.
+- 수식:
+[정보 밀도 (Information Density)]
+- 기본 공식: 정보 밀도 = (고유한 n-gram 개수) / (전체 n-gram 개수)
+- 최종 가중치 합산: 정보 밀도 = (0.4 * unique_1gram_ratio) + (0.6 * unique_2gram_ratio)
+
+<응답의 일관성 (Response Consistency)>
+- 정의:
+- 같은 프롬프트를 여러 번 실행했을 때, 결과가 얼마나 비슷하게 나오는가
+- 프롬프트를 샀는데 한 번은 잘 나오고 한 번은 이상하게 나오면 안되니까 ..
+    
+    = “이 프롬프트가 안정적인가?”를 숫자로 보여주는 느낌
+- 표현이 조금 달라도 내용은 비슷하다면? 높은 일관성
+- 방법: 중심벡터 계산 사용
+- 방법: bedrock에 존재하는 3개의 임베딩 모델 모두 사용 → 크로스 앙상블을 위해 3개의 모델별로 점수 계산 후 평균을 제공할 예정
+
+<환각 탐지 (Hallucination Detection)>
+- 로직: 검증용 AI에게 질문과 답변을 전달하여 사실 여부를 판별합니다.
+- 방식: 단순 API 호출 방식(빠름/저렴) 또는 검색 도구를 사용하는 에이전트 방식(정확/비용 발생) 중 선택하여 구현합니다.
+
+<환각 탐지 (7) - AI 사용>
+- 역할: 출력 결과의 사실 여부 및 근거 없는 주장 포함 여부 판별
+- 방법: 검증용 AI(GPT-4o-mini 등)가 사실 오류면 FALSE, 확인 가능하면 TRUE를 반환하도록 설계
+
+<관련성 (Relevance)>
+- 로직: 입력 질문과 출력 답변을 각각 벡터로 변환하여 두 벡터 사이의 거리를 계산합니다.
+- 판단: 두 벡터가 가리키는 방향이 같을수록 관련성이 높다고 판단합니다.
+<관련성 (8) - AI 사용>
+- 역할: 입력 질문과 출력 답변이 의도에 맞는지 의미적으로 판단
+- 방법: 질문과 답변을 각각 벡터로 변환하여 방향성 일치 여부 계산
+
+1. 중심 벡터 (Centroid)
+centroid = np.mean(embeddings, axis=0)
+embeddings.shape == (N, D)
+axis=0 → 벡터별 평균
+
+2. 평균 거리 (mean_d)
+mean_d = np.mean(distances)
+
+3. 최대 거리 (max)
+max_d = np.max(distances)
+
+4. 일관성 점수
+consistency = 1 - (mean_d + alpha * max_d)
+
+임베딩 앙상블 평균 (모델 2개)
+final_score = np.mean([score_titan, score_cohere])
+
+예시 입력 3개 평균
+final_score = np.mean(input_scores)
+
+관련성 (cosine similarity)
+ (이미 정규화돼 있다면)
+cos_sim = np.dot(x, y)
+정규화 포함 버전
+cos_sim = np.dot(x, y) / (np.linalg.norm(x) * np.linalg.norm(y))
+
+Σ + max 같이 쓰는 공식 전체 예시
+import numpy as np
+
+def consistency_score(embeddings, alpha=0.2):
+    embeddings = np.array(embeddings)  # (N, D)
+
+    centroid = np.mean(embeddings, axis=0)
+
+    # cosine distance to centroid
+    centroid_norm = centroid / np.linalg.norm(centroid)
+    emb_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+
+    distances = 1 - np.dot(emb_norm, centroid_norm)
+
+    mean_d = np.mean(distances)
+    max_d = np.max(distances)
+
+    return 1 - (mean_d + alpha * max_d)
