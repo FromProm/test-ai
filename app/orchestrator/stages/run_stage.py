@@ -17,9 +17,9 @@ class RunStage:
         self, 
         prompt: str, 
         example_inputs: List[ExampleInput], 
-        recommended_model: str = None,
+        recommended_model = None,  # RecommendedModel enum 또는 str
         repeat_count: int = 5,
-        prompt_type: str = None
+        prompt_type = None  # PromptType enum 또는 str
     ) -> Dict[str, Any]:
         """
         예시 입력들에 대해 프롬프트를 병렬 실행하고 결과 수집
@@ -39,11 +39,28 @@ class RunStage:
         
         runner = self.context.get_runner()
         
-        # 모델 선택
-        model = recommended_model or self._get_default_model(example_inputs)
+        # 모델 선택 - RecommendedModel enum을 문자열로 변환
+        if recommended_model:
+            if hasattr(recommended_model, 'value'):
+                # RecommendedModel enum인 경우
+                model = recommended_model.value
+                logger.info(f"Using recommended model: {model}")
+            else:
+                # 이미 문자열인 경우
+                model = recommended_model
+                logger.info(f"Using model string: {model}")
+        else:
+            model = self._get_default_model(example_inputs)
+            logger.info(f"Using default model: {model}")
+        
+        # prompt_type을 문자열로 변환
+        if prompt_type and hasattr(prompt_type, 'value'):
+            prompt_type_str = prompt_type.value
+        else:
+            prompt_type_str = prompt_type or "type_a"
         
         # Variance 계산용 추가 모델들 가져오기
-        variance_models = self._get_variance_models(prompt_type, model)
+        variance_models = self._get_variance_models(prompt_type_str, model)
         
         # 모든 실행 태스크 생성
         all_tasks = []
@@ -91,9 +108,12 @@ class RunStage:
         logger.info(f"Running {len(all_tasks)} LLM calls in parallel (including variance models)")
         
         # 모든 태스크 병렬 실행
+        logger.info("Starting parallel LLM execution...")
         results = await asyncio.gather(*all_tasks, return_exceptions=True)
+        logger.info(f"Parallel LLM execution completed. Got {len(results)} results")
         
         # 결과를 분류하여 정리
+        logger.info("Processing execution results...")
         executions = []
         variance_outputs = {}
         
@@ -161,9 +181,13 @@ class RunStage:
         }
     
     def _get_variance_models(self, prompt_type: str, main_model: str) -> List[str]:
-        """Variance 계산용 모델들 반환 - config의 model_families 사용"""
+        """Variance 계산용 모델들 반환 - config의 model_families 사용 (테스트용으로 1개만)"""
         # config에서 비교 모델 가져오기
         comparison_models = settings.model_families.get(main_model, [])
+        
+        # 테스트용으로 첫 번째 비교 모델만 사용
+        if comparison_models:
+            comparison_models = comparison_models[:1]
         
         # 선택된 모델 + 비교 모델들
         all_models = [main_model] + comparison_models

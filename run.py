@@ -13,7 +13,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8002,  # 포트 변경
         reload=False,  # 리로드 비활성화 (안정성 향상)
         log_level="info",
         timeout_keep_alive=3600  # 1시간 타임아웃 설정

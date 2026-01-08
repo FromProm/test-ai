@@ -43,6 +43,7 @@ class Orchestrator:
         
         try:
             # [1단계] 프롬프트 실행 - 출력 생성 + Variance 모델 실행 (선행 필수)
+            logger.info("Step 1: Starting RunStage execution...")
             execution_results = await self.stages['run'].execute(
                 job_request.prompt,
                 job_request.example_inputs,
@@ -50,12 +51,14 @@ class Orchestrator:
                 job_request.repeat_count,
                 job_request.prompt_type
             )
+            logger.info("Step 1: RunStage execution completed")
             
             # 실행 결과 보존 (S3 저장용)
             self._last_execution_results = execution_results
             
             # [2단계] 임베딩 + 독립 지표들 병렬 실행
             # 임베딩은 일관성 계산에 필요하므로 함께 실행
+            logger.info("Step 2: Starting parallel tasks...")
             parallel_tasks = []
             task_names = []
             

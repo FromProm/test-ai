@@ -14,9 +14,14 @@ class Settings(BaseSettings):
     api_version: str = "0.1.0"
     
     # AWS Settings
-    aws_region: str = "us-east-1"
+    aws_region: str = "us-east-1"  # Bedrock 모델용 (US East)
+    aws_region_sqs_ddb: str = "ap-northeast-2"  # SQS/DynamoDB용 (Seoul)
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
+    
+    # SQS & DynamoDB Settings
+    sqs_queue_url: str = ""
+    ddb_table_name: str = "FromProm_Table"
     
     # Perplexity Settings
     perplexity_api_key: str = ""

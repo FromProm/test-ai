@@ -55,7 +55,7 @@ class ExampleInput(BaseModel):
 
 class JobCreateRequest(BaseModel):
     prompt: str = Field(..., description="평가할 프롬프트")
-    example_inputs: List[ExampleInput] = Field(..., min_items=3, max_items=3, description="예시 입력 3개")
+    example_inputs: List[ExampleInput] = Field(..., description="예시 입력들 (개수 제한 없음)")
     prompt_type: PromptType = Field(..., description="프롬프트 타입")
     recommended_model: Optional[RecommendedModel] = Field(None, description="권장 모델 (Claude: 글 타입, Nova: 이미지 타입)")
     repeat_count: int = Field(5, ge=1, le=10, description="반복 실행 횟수")

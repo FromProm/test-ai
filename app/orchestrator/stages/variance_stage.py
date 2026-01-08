@@ -61,9 +61,15 @@ class VarianceStage:
                 logger.warning("No recommended model specified")
                 return MetricScore(score=50.0, details={'error': 'no_model_specified'})
             
-            comparison_models = self._get_comparison_models(recommended_model)
+            # RecommendedModel enum을 문자열로 변환
+            if hasattr(recommended_model, 'value'):
+                model_str = recommended_model.value
+            else:
+                model_str = recommended_model
+            
+            comparison_models = self._get_comparison_models(model_str)
             # 선택된 모델 + 비교 모델들
-            all_models = [recommended_model] + comparison_models
+            all_models = [model_str] + comparison_models
             
             if len(all_models) < 2:
                 logger.warning(f"Not enough models for comparison: {all_models}")
