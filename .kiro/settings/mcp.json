@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "wikipedia": {
+      "command": "uvx",
+      "args": ["wikipedia-mcp"],
+      "disabled": false,
+      "autoApprove": ["search_wikipedia", "get_page_summary", "get_page_content", "get_article", "get_summary"]
+    },
+    "arxiv": {
+      "command": "uvx",
+      "args": ["--from", "arxiv-mcp-server", "arxiv-search.exe"],
+      "disabled": false,
+      "autoApprove": ["search_papers", "get_paper_details", "search_arxiv"]
+    },
+    "duckduckgo": {
+      "command": "uvx",
+      "args": ["duckduckgo-mcp-server"],
+      "disabled": false,
+      "autoApprove": ["search", "web_search", "fetch_content"]
+    },
+    "web-scraper": {
+      "command": "uvx", 
+      "args": ["mcp-server-fetch"],
+      "disabled": false,
+      "autoApprove": ["scrape_url", "extract_content", "fetch_page", "fetch"]
+    }
+  }
+}
